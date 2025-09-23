@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trova la Pallina - Shell Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            color: white;
+        }
+        
+        h1 {
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            margin-bottom: 10px;
+        }
+        
+        #gameInfo {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 30px;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        #gameArea {
+            position: relative;
+            width: 600px;
+            height: 400px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+        
+        .cup {
+            position: absolute;
+            width: 80px;
+            height: 100px;
+            background: linear-gradient(45deg, #8B4513, #D2691E);
+            border-radius: 0 0 40px 40px;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+            border: 3px solid #654321;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .cup:hover {
+            transform: translateY(-10px);
+        }
+        
+        .cup.lifting {
+            transform: translateY(-20px);
+        }
+        
+        .cup::before {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: -5px;
+            right: -5px;
+            height: 10px;
+            background: linear-gradient(45deg, #A0522D, #F4A460);
+            border-radius: 50px;
+            border: 2px solid #654321;
+        }
+        
+        .ball {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: radial-gradient(circle at 30% 30%, #ff4757, #c44569);
+            border-radius: 50%;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+        }
+        
+        .ball.hidden {
+            display: none;
+        }
+        
+        #controls {
+            margin-top: 30px;
+            text-align: center;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        #message {
+            margin-top: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            min-height: 30px;
+        }
+        
+        .correct {
+            color: #2ed573;
+        }
+        
+        .wrong {
+            color: #ff4757;
+        }
+        
+        .instructions {
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+        
+        @keyframes shuffle {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(var(--move-distance, 100px)); }
+        }
+        
+        .cup.shuffling {
+            animation: shuffle var(--shuffle-duration, 1s) ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏆 Trova la Pallina</h1>
+    
+    <div id="gameInfo">
+        <div>Livello: <span id="level">1</span></div>
+        <div>Punteggio: <span id="score">0</span></div>
+        <div>Bicchieri: <span id="cupCount">3</span></div>
+    </div>
+    
+    <div class="instructions">
+        <p>Guarda sotto quale bicchiere si nasconde la pallina rossa! 🔴</p>
+        <p>Livelli più alti = più bicchieri e mescolamenti più veloci!</p>
+    </div>
+    
+    <div id="gameArea">
+        <!-- I bicchieri e la pallina verranno creati dinamicamente -->
+    </div>
+    
+    <div id="controls">
+        <button id="startBtn">Inizia Livello</button>
+        <button id="nextBtn" style="display: none;">Livello Successivo</button>
+        <button id="restartBtn">Ricomincia</button>
+    </div>
+    
+    <div id="message"></div>
+
+    <script>
+        let currentLevel = 1;
+        let score = 0;
+        let ballPosition = 0;
+        let gameState = 'ready'; // ready, showing, shuffling, guessing
+        let cups = [];
+        let shuffleCount = 0;
+        let maxShuffles = 0;
+        
+        const gameArea = document.getElementById('gameArea');
+        const levelDisplay = document.getElementById('level');
+        const scoreDisplay = document.getElementById('score');
+        const cupCountDisplay = document.getElementById('cupCount');
+        const messageDisplay = document.getElementById('message');
+        const startBtn = document.getElementById('startBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        
+        function getLevelSettings(level) {
+            const settings = {
+                1: { cups: 3, shuffles: 3, speed: 1000, points: 10 },
+                2: { cups: 3, shuffles: 5, speed: 800, points: 15 },
+                3: { cups: 4, shuffles: 6, speed: 700, points: 20 },
+                4: { cups: 4, shuffles: 8, speed: 600, points: 25 },
+                5: { cups: 5, shuffles: 10, speed: 500, points: 30 },
+                6: { cups: 5, shuffles: 12, speed: 400, points: 35 },
+                7: { cups: 6, shuffles: 15, speed: 350, points: 40 },
+                8: { cups: 6, shuffles: 18, speed: 300, points: 50 }
+            };
+            
+            if (level <= 8) {
+                return settings[level];
+            } else {
+                // Livelli infiniti con difficoltà crescente
+                const baseCups = 6;
+                const baseShuffles = 20;
+                const baseSpeed = 250;
+                const extraLevel = level - 8;
+                
+                return {
+                    cups: Math.min(baseCups + Math.floor(extraLevel / 3), 8),
+                    shuffles: baseShuffles + extraLevel * 2,
+                    speed: Math.max(baseSpeed - extraLevel * 10, 150),
+                    points: 50 + extraLevel * 10
+                };
+            }
+        }
+        
+        function createCups(numCups) {
+            gameArea.innerHTML = '';
+            cups = [];
+            
+            const cupWidth = 80;
+            const totalWidth = numCups * cupWidth + (numCups - 1) * 20;
+            const startX = (600 - totalWidth) / 2;
+            
+            for (let i = 0; i < numCups; i++) {
+                const cup = document.createElement('div');
+                cup.className = 'cup';
+                cup.style.left = (startX + i * (cupWidth + 20)) + 'px';
+                cup.style.bottom = '50px';
+                cup.dataset.index = i;
+                
+                cup.addEventListener('click', () => {
+                    if (gameState === 'guessing') {
+                        makeGuess(i);
+                    }
+                });
+                
+                gameArea.appendChild(cup);
+                cups.push(cup);
+            }
+            
+            // Crea la pallina
+            const ball = document.createElement('div');
+            ball.className = 'ball';
+            ball.id = 'ball';
+            gameArea.appendChild(ball);
+            
+            cupCountDisplay.textContent = numCups;
+        }
+        
+        function showBall() {
+            const settings = getLevelSettings(currentLevel);
+            ballPosition = Math.floor(Math.random() * settings.cups);
+            
+            const ball = document.getElementById('ball');
+            const targetCup = cups[ballPosition];
+            const cupRect = targetCup.getBoundingClientRect();
+            const gameRect = gameArea.getBoundingClientRect();
+            
+            ball.style.left = (cupRect.left - gameRect.left + 25) + 'px';
+            ball.classList.remove('hidden');
+            
+            messageDisplay.textContent = '👀 Guarda bene dove si trova la pallina!';
+            messageDisplay.className = '';
+            
+            gameState = 'showing';
+            
+            setTimeout(() => {
+                ball.classList.add('hidden');
+                startShuffling();
+            }, 2000);
+        }
+        
+        function startShuffling() {
+            gameState = 'shuffling';
+            messageDisplay.textContent = '🔄 Segui i bicchieri con attenzione!';
+            
+            const settings = getLevelSettings(currentLevel);
+            maxShuffles = settings.shuffles;
+            shuffleCount = 0;
+            
+            performShuffle();
+        }
+        
+        function performShuffle() {
+            if (shuffleCount >= maxShuffles) {
+                endShuffling();
+                return;
+            }
+            
+            const settings = getLevelSettings(currentLevel);
+            const numCups = settings.cups;
+            
+            // Scegli due bicchieri casuali da scambiare
+            const cup1Index = Math.floor(Math.random() * numCups);
+            let cup2Index = Math.floor(Math.random() * numCups);
+            while (cup2Index === cup1Index) {
+                cup2Index = Math.floor(Math.random() * numCups);
+            }
+            
+            const cup1 = cups[cup1Index];
+            const cup2 = cups[cup2Index];
+            
+            // Calcola la distanza per lo scambio
+            const cup1Left = parseFloat(cup1.style.left);
+            const cup2Left = parseFloat(cup2.style.left);
+            const distance = cup2Left - cup1Left;
+            
+            // Applica l'animazione
+            cup1.style.setProperty('--move-distance', distance + 'px');
+            cup2.style.setProperty('--move-distance', -distance + 'px');
+            cup1.style.setProperty('--shuffle-duration', settings.speed + 'ms');
+            cup2.style.setProperty('--shuffle-duration', settings.speed + 'ms');
+            
+            cup1.classList.add('shuffling');
+            cup2.classList.add('shuffling');
+            
+            // Scambia le posizioni effettive
+            setTimeout(() => {
+                const tempLeft = cup1.style.left;
+                cup1.style.left = cup2.style.left;
+                cup2.style.left = tempLeft;
+                
+                cup1.classList.remove('shuffling');
+                cup2.classList.remove('shuffling');
+                
+                // Aggiorna la posizione della pallina se necessario
+                if (ballPosition === cup1Index) {
+                    ballPosition = cup2Index;
+                } else if (ballPosition === cup2Index) {
+                    ballPosition = cup1Index;
+                }
+                
+                shuffleCount++;
+                setTimeout(() => performShuffle(), 100);
+            }, settings.speed);
+        }
+        
+        function endShuffling() {
+            gameState = 'guessing';
+            messageDisplay.textContent = '🤔 Clicca sul bicchiere che nasconde la pallina!';
+        }
+        
+        function makeGuess(guessedIndex) {
+            gameState = 'revealing';
+            
+            // Solleva tutti i bicchieri per mostrare il risultato
+            cups.forEach((cup, index) => {
+                cup.classList.add('lifting');
+                if (index === ballPosition) {
+                    setTimeout(() => {
+                        const ball = document.getElementById('ball');
+                        ball.classList.remove('hidden');
+                    }, 200);
+                }
+            });
+            
+            setTimeout(() => {
+                if (guessedIndex === ballPosition) {
+                    const settings = getLevelSettings(currentLevel);
+                    score += settings.points;
+                    messageDisplay.textContent = '🎉 Esatto! Ben fatto!';
+                    messageDisplay.className = 'correct';
+                    nextBtn.style.display = 'inline-block';
+                    startBtn.style.display = 'none';
+                } else {
+                    messageDisplay.textContent = '❌ Sbagliato! La pallina era sotto un altro bicchiere.';
+                    messageDisplay.className = 'wrong';
+                    setTimeout(() => {
+                        startBtn.style.display = 'inline-block';
+                        startBtn.textContent = 'Riprova Livello';
+                    }, 2000);
+                }
+                
+                scoreDisplay.textContent = score;
+                gameState = 'ready';
+            }, 1000);
+        }
+        
+        function nextLevel() {
+            currentLevel++;
+            levelDisplay.textContent = currentLevel;
+            nextBtn.style.display = 'none';
+            startBtn.style.display = 'inline-block';
+            startBtn.textContent = 'Inizia Livello';
+            messageDisplay.textContent = '';
+            messageDisplay.className = '';
+            
+            // Crea i nuovi bicchieri per il livello successivo
+            const settings = getLevelSettings(currentLevel);
+            createCups(settings.cups);
+        }
+        
+        function restartGame() {
+            currentLevel = 1;
+            score = 0;
+            gameState = 'ready';
+            
+            levelDisplay.textContent = currentLevel;
+            scoreDisplay.textContent = score;
+            
+            messageDisplay.textContent = '';
+            messageDisplay.className = '';
+            
+            startBtn.style.display = 'inline-block';
+            startBtn.textContent = 'Inizia Livello';
+            nextBtn.style.display = 'none';
+            
+            createCups(3);
+        }
+        
+        // Event listeners
+        startBtn.addEventListener('click', () => {
+            if (gameState === 'ready') {
+                startBtn.style.display = 'none';
+                showBall();
+            }
+        });
+        
+        nextBtn.addEventListener('click', nextLevel);
+        restartBtn.addEventListener('click', restartGame);
+        
+        // Inizializza il gioco
+        restartGame();
+    </script>
+</body>
+</html>
